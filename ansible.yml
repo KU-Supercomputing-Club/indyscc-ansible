@@ -1,0 +1,101 @@
+---
+- hosts: all
+  become: yes
+
+  tasks:
+    - name: Disable SELinux
+      ansible.posix.selinux:
+        state: disabled
+    - name: Stop and disable firewalld
+      service:
+        name: firewalld
+        state: stopped
+        enabled: no
+
+    - name: enable PowerTools repository for el8 variants
+      command:
+        cmd: dnf config-manager --enable powertools
+      when: (ansible_distribution == "CentOS" and ansible_distribution_major_version|int == 8) or
+            (ansible_distribution == "Rocky" and ansible_distribution_major_version|int == 8)
+
+    - name: enable CRB repository for el9+ variants
+      command:
+        cmd: dnf config-manager --enable crb
+      when: (ansible_distribution == "CentOS" and ansible_distribution_major_version|int > 8) or
+            (ansible_distribution == "Rocky" and ansible_distribution_major_version|int > 8)
+
+    - name: setup epel for el
+      dnf:
+        name:
+          epel-release
+        state: present
+      when: ansible_distribution == "CentOS" or ansible_distribution == "Rocky"
+    
+    - name: Install SSSD, rsyslog, net-snmp, autofs, nfs-utils, vim, htop, tmux
+      dnf:
+        name:
+          - slurm
+          - nfs-utils
+          - autofs 
+          - vim
+          - htop
+          - git
+          - tmux
+          - kernel-devel
+        state: present
+
+    - name: Creates /nfs directory
+      ansible.builtin.file:
+        path: /nfs
+        state: directory
+
+    - name: Creates slurm state directory
+      ansible.builtin.file:
+        path: /var/spool/slurm/state
+        state: directory
+        owner: slurm
+        group: slurm
+        mode: 0755
+
+    - name: Creates slurm spool directory
+      ansible.builtin.file:
+        path: /var/spool/slurm/tmp
+        state: directory
+        owner: slurm
+        group: slurm
+        mode: 0755
+
+    - name: Creates slurm log directory
+      ansible.builtin.file:
+        path: /var/log/slurm
+        state: directory
+        owner: slurm
+        group: slurm
+        mode: 0755
+
+    - name: Copy autofs, slurm files
+      copy:
+        src: "{{ item.src }}"
+        dest: "{{ item.dest }}"
+        owner: root
+        group: root
+        mode: 0644
+      with_items:
+       - src: etc/auto.master.d/
+         dest: /etc/auto.master.d
+       - src: etc/auto.nfs
+         dest: /etc/auto.nfs 
+       - src: etc/slurm.conf
+         dest: /etc/slurm/slurm.conf
+       - src: etc/gres.conf
+         dest: /etc/slurm/gres.conf
+
+    - name: Start and enable slurm and autofs
+      service:
+        name: "{{ item }}"
+        state: started
+        enabled: yes
+      with_items:
+        - slurm
+        - autofs
+
